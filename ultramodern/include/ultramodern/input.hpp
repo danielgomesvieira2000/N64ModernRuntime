@@ -15,7 +15,12 @@ namespace ultramodern {
         enum class Pak {
             None,
             RumblePak,
-            // ControllerPak,
+            // A Controller Pak (mempak). The runtime does not emulate the pak itself — the port
+            // answers the joybus READ_PAK/WRITE_PAK traffic against its own backing store. What the
+            // value provides is the ability to report an accessory that is NOT a Rumble Pak, so
+            // OSContStatus.status carries CONT_CARD_ON without osMotorInit accepting the port as a
+            // rumble device. Without it, a port emulating a Controller Pak has to claim RumblePak.
+            ControllerPak,
             // TransferPak
         };
 
