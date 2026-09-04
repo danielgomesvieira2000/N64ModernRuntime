@@ -80,6 +80,11 @@ namespace ultramodern {
             Stretch,
             OptionCount
         };
+        enum class PresentationMode {
+            Console,
+            SkipBuffering,
+            PresentEarly
+        };
 
         class GraphicsConfig {
         public:

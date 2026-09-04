@@ -37,10 +37,14 @@ struct ScreenUpdateAction {
 struct UpdateConfigAction {
 };
 
-using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction>;
+struct DummyWorkloadAction {
+    int32_t fb_address;
+};
+
+using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction, DummyWorkloadAction>;
 
 struct ViState {
-    const OSViMode* mode;
+    const OSViMode* mode = nullptr;
     PTR(void) framebuffer;
     PTR(OSMesg) mq;
     OSMesg msg;
@@ -70,6 +74,11 @@ static struct {
         void update_vi() {
             ViState* next_state = get_next_state();
             const OSViMode* next_mode = next_state->mode;
+            if (next_mode == nullptr) {
+                // Skip the update if the next mode hasn't been set yet.
+                return;
+            }
+
             const OSViCommonRegs* common_regs = &next_mode->comRegs;
             const OSViFieldRegs* field_regs = &next_mode->fldRegs[field];
             PTR(void) framebuffer = osVirtualToPhysical(next_state->framebuffer);
@@ -223,6 +232,8 @@ void vi_thread_func() {
             static bool odd = false;
             set_dummy_vi(odd);
             odd = !odd;
+
+            events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
         }
 
         // Queue a screen update for the graphics thread with the current VI register state.
@@ -363,11 +374,6 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
         if (events_context.action_queue.wait_dequeue_timed(action, 1ms)) {
             // Determine the action type and act on it
             if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
-                // Turn on instant present if the game has been started and it hasn't been turned on yet.
-                if (ultramodern::is_game_started() && !enabled_instant_present) {
-                    renderer_context->enable_instant_present();
-                    enabled_instant_present = true;
-                }
                 // Tell the game that the RSP completed instantly. This will allow it to queue other task types, but it won't
                 // start another graphics task until the RDP is also complete. Games usually preserve the RSP inputs until the RDP
                 // is finished as well, so sending this early shouldn't be an issue in most cases.
@@ -400,6 +406,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                 if (renderer_context->update_config(old_config, new_config)) {
                     old_config = new_config;
                 }
+            }
+            else if (const auto* dummy_workload_action = std::get_if<DummyWorkloadAction>(&action)) {
+                renderer_context->send_dummy_workload(dummy_workload_action->fb_address);
             }
         }
     }
@@ -452,11 +461,16 @@ static const OSViMode dummy_mode = []() {
 void set_dummy_vi(bool odd) {
     ViState* next_state = events_context.vi.get_next_state();
     next_state->mode = &dummy_mode;
+    // Upstream addition, kept: initialise the VI control word from the mode's command registers.
+    next_state->control = next_state->mode->comRegs.ctrl;
     // BAR boots with osViBlack(TRUE)+osViSwapBuffer(0x100000), then un-blacks ONLY once its gfx manager
     // sees osViGetCurrentFramebuffer()==0x100000 (uvgfxmgr_rom.c). That check runs while this dummy VI
     // is still the current state, so the dummy framebuffer MUST be 0x100000 (BAR's boot framebuffer) or
     // the un-black never fires and the screen stays black forever (RT64 refuses to present a VI whose
     // hStart==0, which is what VI_STATE_BLACK forces). Was 0x80700000.
+    //
+    // This deliberately overrides upstream's 0x80700000 dummy framebuffer and its odd-field offset —
+    // do not "restore" them on a future merge without re-testing the boot, or the screen goes black.
     (void)odd;
     next_state->framebuffer = 0x100000;
 }
