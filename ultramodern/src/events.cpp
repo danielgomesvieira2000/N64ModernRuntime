@@ -469,10 +469,17 @@ void set_dummy_vi(bool odd) {
     // the un-black never fires and the screen stays black forever (RT64 refuses to present a VI whose
     // hStart==0, which is what VI_STATE_BLACK forces). Was 0x80700000.
     //
-    // This deliberately overrides upstream's 0x80700000 dummy framebuffer and its odd-field offset —
-    // do not "restore" them on a future merge without re-testing the boot, or the screen goes black.
-    (void)odd;
-    next_state->framebuffer = 0x100000;
+    // This deliberately overrides upstream's 0x80700000 dummy framebuffer — do not "restore" that on
+    // a future merge without re-testing the boot, or the screen goes black.
+    //
+    // The odd/even alternation, however, MUST be kept. Presentation is driven by the VI origin
+    // changing (emphatically so in Console presentation mode, which presents strictly from that
+    // origin), so a dummy framebuffer pinned to one constant address looks to RT64 like the same
+    // frame forever: it stops presenting, recompui's draw_hook never runs, and the launcher renders
+    // once and then ignores every click and keypress while still sitting on screen. Alternating the
+    // address keeps frames flowing before a game is started. 0x100000 is still reported on every
+    // other frame, which is what BAR's un-black check above needs to see.
+    next_state->framebuffer = 0x100000 + (odd ? 0x25800 : 0);
 }
 
 extern "C" void osViSwapBuffer(RDRAM_ARG PTR(void) frameBufPtr) {
