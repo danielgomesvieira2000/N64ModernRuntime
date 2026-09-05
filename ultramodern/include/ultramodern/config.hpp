@@ -69,15 +69,22 @@ namespace ultramodern {
             Off,
             OptionCount
         };
-        // BAR letterbox control: how the 4:3 image is fit to a window of a different aspect ratio.
-        //   Pillarbox = keep aspect + black bars (default; only visible when the window isn't 4:3).
-        //   Crop      = keep aspect, fill the window, crop the overflow (removes the left/right pillars).
-        //   Stretch   = fill the window, distort to its aspect.
+        // BAR letterbox control: how the image is fit to a window of a different aspect ratio.
+        //   Crop      = keep aspect, fill the window, crop the overflow (no bars). DEFAULT.
+        //   Stretch   = fill the window, distort to its aspect (no bars).
+        //   Pillarbox = keep aspect and pad with black bars.
         // Pairs with ar_option=Expand (widen 3D FOV) so Crop/Stretch show more scene instead of just zooming.
+        //
+        // Crop is deliberately FIRST. This project's hard requirement is that the image always fills the
+        // window with no black bars in any configuration, and the first enumerator is what every fallback
+        // path resolves to: nlohmann's enum deserializer returns it for an unrecognised string, RT64's
+        // clampEnum() returns it for an out-of-range value, and a default-constructed GraphicsConfig that
+        // predates this field would zero to it. Putting Pillarbox first (as this enum used to) meant any
+        // one of those paths silently reintroduced the bars. Do not reorder.
         enum class PresentFillMode {
-            Pillarbox,
             Crop,
             Stretch,
+            Pillarbox,
             OptionCount
         };
         enum class PresentationMode {
@@ -86,21 +93,28 @@ namespace ultramodern {
             PresentEarly
         };
 
+        // Every member has a default initializer, and that is load-bearing rather than tidiness.
+        // RecompFrontend's graphics tab applies settings by default-constructing a GraphicsConfig and
+        // assigning only the options it knows about (ui_config_tab_graphics.cpp, apply_graphics_config).
+        // It cannot know about divot_option or pfm_option, which this project added — so without these
+        // initializers those two fields held indeterminate values every time the player touched the
+        // graphics menu, which for pfm_option meant the letterbox could reappear at random. Any field
+        // added here must carry a default for the same reason.
         class GraphicsConfig {
         public:
-            bool developer_mode;
-            Resolution res_option;
-            WindowMode wm_option;
-            HUDRatioMode hr_option;
-            GraphicsApi api_option;
-            AspectRatio ar_option;
-            Antialiasing msaa_option;
-            RefreshRate rr_option;
-            HighPrecisionFramebuffer hpfb_option;
-            int rr_manual_value;
-            int ds_option;
-            DivotFilter divot_option;
-            PresentFillMode pfm_option;   // BAR: window-fit mode (pillarbox/crop/stretch) for the final present
+            bool developer_mode = false;
+            Resolution res_option = Resolution::Auto;
+            WindowMode wm_option = WindowMode::Windowed;
+            HUDRatioMode hr_option = HUDRatioMode::Original;
+            GraphicsApi api_option = GraphicsApi::Auto;
+            AspectRatio ar_option = AspectRatio::Expand;   // widescreen is the point of this port
+            Antialiasing msaa_option = Antialiasing::MSAA4X;
+            RefreshRate rr_option = RefreshRate::Display;
+            HighPrecisionFramebuffer hpfb_option = HighPrecisionFramebuffer::Auto;
+            int rr_manual_value = 60;
+            int ds_option = 1;
+            DivotFilter divot_option = DivotFilter::Auto;
+            PresentFillMode pfm_option = PresentFillMode::Crop;   // BAR: never letterbox — always fill the window
 
             virtual ~GraphicsConfig() = default;
 
@@ -169,10 +183,12 @@ namespace ultramodern {
             {ultramodern::renderer::DivotFilter::Off, "Off"},
         });
 
+        // Crop first: an unrecognised string resolves to the first entry, and this project must never
+        // fall back to a mode that adds black bars. See the enum's own comment.
         NLOHMANN_JSON_SERIALIZE_ENUM(ultramodern::renderer::PresentFillMode, {
-            {ultramodern::renderer::PresentFillMode::Pillarbox, "Pillarbox"},
             {ultramodern::renderer::PresentFillMode::Crop, "Crop"},
             {ultramodern::renderer::PresentFillMode::Stretch, "Stretch"},
+            {ultramodern::renderer::PresentFillMode::Pillarbox, "Pillarbox"},
         });
     }
 }
