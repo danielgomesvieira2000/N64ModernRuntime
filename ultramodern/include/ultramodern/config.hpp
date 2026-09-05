@@ -70,17 +70,22 @@ namespace ultramodern {
             OptionCount
         };
         // BAR letterbox control: how the image is fit to a window of a different aspect ratio.
-        //   Crop      = keep aspect, fill the window, crop the overflow (no bars). DEFAULT.
+        //   Crop      = keep aspect, fill the window, crop the overflow (no bars).
         //   Stretch   = fill the window, distort to its aspect (no bars).
-        //   Pillarbox = keep aspect and pad with black bars.
+        //   Pillarbox = keep aspect and pad with black bars. Currently the default; see below.
         // Pairs with ar_option=Expand (widen 3D FOV) so Crop/Stretch show more scene instead of just zooming.
         //
-        // Crop is deliberately FIRST. This project's hard requirement is that the image always fills the
-        // window with no black bars in any configuration, and the first enumerator is what every fallback
-        // path resolves to: nlohmann's enum deserializer returns it for an unrecognised string, RT64's
-        // clampEnum() returns it for an out-of-range value, and a default-constructed GraphicsConfig that
-        // predates this field would zero to it. Putting Pillarbox first (as this enum used to) meant any
-        // one of those paths silently reintroduced the bars. Do not reorder.
+        // Crop is deliberately FIRST even though it is not currently the default. The end goal for this
+        // project is that the image always fills the window with no black bars, and the first enumerator
+        // is what every fallback path resolves to: nlohmann's enum deserializer returns it for an
+        // unrecognised string, RT64's clampEnum() returns it for an out-of-range value, and a
+        // default-constructed GraphicsConfig that predates this field would zero to it. Putting Pillarbox
+        // first (as this enum used to) meant any one of those paths silently reintroduced the bars.
+        // Do not reorder.
+        //
+        // The DEFAULT is Pillarbox only while plain 4:3 is being established as a correct baseline:
+        // it is the one mode that shows the whole picture at its true proportions, so it is what
+        // "4:3 works" can be judged against. It goes back to Crop once that baseline is signed off.
         enum class PresentFillMode {
             Crop,
             Stretch,
@@ -107,14 +112,18 @@ namespace ultramodern {
             WindowMode wm_option = WindowMode::Windowed;
             HUDRatioMode hr_option = HUDRatioMode::Original;
             GraphicsApi api_option = GraphicsApi::Auto;
-            AspectRatio ar_option = AspectRatio::Expand;   // widescreen is the point of this port
+            AspectRatio ar_option = AspectRatio::Original;   // BASELINE: get plain 4:3 right first
             Antialiasing msaa_option = Antialiasing::MSAA4X;
             RefreshRate rr_option = RefreshRate::Display;
             HighPrecisionFramebuffer hpfb_option = HighPrecisionFramebuffer::Auto;
             int rr_manual_value = 60;
             int ds_option = 1;
             DivotFilter divot_option = DivotFilter::Auto;
-            PresentFillMode pfm_option = PresentFillMode::Crop;   // BAR: never letterbox — always fill the window
+            // BASELINE: Pillarbox shows the WHOLE picture at its true proportions, which is what
+            // "4:3 working properly" means and what the next step is measured against. Removing the
+            // bars is a separate, later change: Crop fills the window but cuts 25% off the top and
+            // bottom of a 4:3 image, so it cannot be the baseline.
+            PresentFillMode pfm_option = PresentFillMode::Pillarbox;
 
             virtual ~GraphicsConfig() = default;
 
