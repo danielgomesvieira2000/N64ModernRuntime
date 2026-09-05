@@ -458,28 +458,43 @@ static const OSViMode dummy_mode = []() {
     return ret;
 }();
 
+// Same dummy mode, but scanning out from a different line offset. See set_dummy_vi below: this is how
+// the pre-game VI origin is made to change without changing the framebuffer address the game reads
+// back through osViGetCurrentFramebuffer().
+static const OSViMode dummy_mode_alt = []() {
+    OSViMode ret = dummy_mode;
+    for (int field = 0; field < 2; field++) {
+        ret.fldRegs[field].origin = dummy_mode.fldRegs[field].origin + 0x25800;
+    }
+    return ret;
+}();
+
 void set_dummy_vi(bool odd) {
     ViState* next_state = events_context.vi.get_next_state();
-    next_state->mode = &dummy_mode;
-    // Upstream addition, kept: initialise the VI control word from the mode's command registers.
+    // Two constraints meet here, and they pull in opposite directions.
+    //
+    // (1) BAR boots with osViBlack(TRUE)+osViSwapBuffer(0x100000) and un-blacks ONLY once its gfx
+    //     manager sees osViGetCurrentFramebuffer()==0x100000 (uvgfxmgr_rom.c). That getter returns
+    //     this ViState's framebuffer verbatim, and the check runs while the last dummy state is still
+    //     current -- so if this field is ever anything else when the game starts, BAR never un-blacks
+    //     and the screen stays black forever (RT64 refuses to present a VI whose hStart==0, which is
+    //     what VI_STATE_BLACK forces). Upstream's 0x80700000 is wrong for BAR; do not "restore" it on
+    //     a future merge without re-testing the boot.
+    //
+    // (2) Presentation before a game starts is driven by the VI *origin* changing -- emphatically so
+    //     in Console presentation mode, which presents strictly from that origin. Pinned to one
+    //     address, RT64 sees the same frame forever and stops presenting: recompui's draw_hook never
+    //     runs, and the launcher paints once and then ignores every click and keypress.
+    //
+    // Alternating next_state->framebuffer satisfies (2) but breaks (1) HALF THE TIME -- whether BAR
+    // un-blacks then depends on the parity of the last dummy frame before is_game_started() flips,
+    // which is a coin toss that presents as an intermittent permanent black screen. So instead the
+    // framebuffer stays pinned at 0x100000 for (1), and the alternation moves into the mode's field
+    // origin, which update_vi() adds to the framebuffer when it computes VI_ORIGIN_REG. The scanout
+    // address changes every frame for (2); the address the game reads back never does.
+    next_state->mode = odd ? &dummy_mode_alt : &dummy_mode;
     next_state->control = next_state->mode->comRegs.ctrl;
-    // BAR boots with osViBlack(TRUE)+osViSwapBuffer(0x100000), then un-blacks ONLY once its gfx manager
-    // sees osViGetCurrentFramebuffer()==0x100000 (uvgfxmgr_rom.c). That check runs while this dummy VI
-    // is still the current state, so the dummy framebuffer MUST be 0x100000 (BAR's boot framebuffer) or
-    // the un-black never fires and the screen stays black forever (RT64 refuses to present a VI whose
-    // hStart==0, which is what VI_STATE_BLACK forces). Was 0x80700000.
-    //
-    // This deliberately overrides upstream's 0x80700000 dummy framebuffer — do not "restore" that on
-    // a future merge without re-testing the boot, or the screen goes black.
-    //
-    // The odd/even alternation, however, MUST be kept. Presentation is driven by the VI origin
-    // changing (emphatically so in Console presentation mode, which presents strictly from that
-    // origin), so a dummy framebuffer pinned to one constant address looks to RT64 like the same
-    // frame forever: it stops presenting, recompui's draw_hook never runs, and the launcher renders
-    // once and then ignores every click and keypress while still sitting on screen. Alternating the
-    // address keeps frames flowing before a game is started. 0x100000 is still reported on every
-    // other frame, which is what BAR's un-black check above needs to see.
-    next_state->framebuffer = 0x100000 + (odd ? 0x25800 : 0);
+    next_state->framebuffer = 0x100000;
 }
 
 extern "C" void osViSwapBuffer(RDRAM_ARG PTR(void) frameBufPtr) {
